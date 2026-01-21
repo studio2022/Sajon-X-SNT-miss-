@@ -23,18 +23,26 @@ export const Login: React.FC<LoginProps> = ({ onLogin }) => {
     // Simulate Network Delay
     setTimeout(() => {
         setIsLoading(false);
-        if (email && password) {
-            // Mock Login Success
+        
+        // Validation Logic
+        if (email.length > 3 && password.length > 3) {
+            
+            // Check for Admin Access
+            // If email contains 'admin', grant Admin Role.
+            // Example: admin@melodymix.com, superadmin@gmail.com
+            const isAdmin = email.toLowerCase().includes('admin');
+
             const mockUser: User = {
                 email: email,
-                role: email.includes('admin') ? 'admin' : 'user', // Backdoor for admin: use 'admin' in email
-                credits: isSignUp ? 20 : 10, // Bonus for sign up
+                role: isAdmin ? 'admin' : 'user', 
+                credits: isSignUp ? 50 : 20, // Increased default credits
             };
+            
             onLogin(mockUser);
         } else {
-            setError('Please enter valid credentials.');
+            setError('Email and Password must be at least 4 characters.');
         }
-    }, 1500);
+    }, 1000);
   };
 
   return (
@@ -50,15 +58,20 @@ export const Login: React.FC<LoginProps> = ({ onLogin }) => {
           </div>
           <h1 className="text-3xl font-display font-bold text-white mb-2">MelodyMix</h1>
           <p className="text-gray-400">
-            {isSignUp ? 'Create your Creator Account' : 'AI-Powered Music Transformation'}
+            {isSignUp ? 'Join the Revolution' : 'Login to Studio'}
           </p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
+          <div className="bg-yellow-500/10 border border-yellow-500/20 p-3 rounded-lg text-xs text-yellow-200 text-center mb-4">
+             Tip: Use "admin" in email to access Admin Panel. <br/>
+             (e.g., admin@test.com)
+          </div>
+
           <Input 
             label="Email Address"
             type="email"
-            placeholder="admin@melodymix.com (for admin)"
+            placeholder="name@example.com"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             icon={<Mail className="w-4 h-4" />}
@@ -100,8 +113,6 @@ export const Login: React.FC<LoginProps> = ({ onLogin }) => {
               onClick={() => {
                 setIsSignUp(!isSignUp);
                 setError('');
-                setEmail('');
-                setPassword('');
               }}
               className="text-neon-blue hover:text-neon-purple transition-colors text-sm font-medium flex items-center justify-center gap-2 w-full"
             >

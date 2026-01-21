@@ -114,7 +114,8 @@ export const Home: React.FC<HomeProps> = ({ onPlay, onSaveToLibrary, userCredits
             config = { ...config, speed: 1.05, mashupBalance: 0.5 }; 
         }
         if (finalType === 'dj_mode') {
-            config = { ...config, speed: 1.15, bassBoost: 12, pitch: 1 };
+            // Updated default to prevent distortion
+            config = { ...config, speed: 1.15, bassBoost: 6, pitch: 1 };
         }
 
         const newSong: Song = {

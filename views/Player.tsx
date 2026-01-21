@@ -15,7 +15,6 @@ export const Player: React.FC<PlayerProps> = ({ song, onBack }) => {
 
   // --- Audio Parameters ---
   const [speed, setSpeed] = useState(song.config?.speed || 1.0);
-  const [pitchShift, setPitchShift] = useState(0); // For DJ Key Control
   const [bass, setBass] = useState(song.config?.bassBoost || 0);
   const [reverb, setReverb] = useState(song.config?.reverbMix || 0);
   const [is8D, setIs8D] = useState(song.config?.is8D || false);
@@ -35,7 +34,7 @@ export const Player: React.FC<PlayerProps> = ({ song, onBack }) => {
   const panAngleRef = useRef(0);
   const syncIntervalRef = useRef<number>();
 
-  // --- 1. SETUP AUDIO ENGINE ---
+  // --- 1. SETUP AUDIO ENGINE (DISTORTION FIX) ---
   useEffect(() => {
     setIsPlaying(false);
     setCurrentTime(0);
@@ -56,31 +55,35 @@ export const Player: React.FC<PlayerProps> = ({ song, onBack }) => {
             source2 = ctx.createMediaElementSource(audioRef2.current);
         }
 
-        // --- FX Chain Construction ---
+        // --- FX Chain Construction (Optimized for Clear Sound) ---
         
-        // A. Bass Boost (LowShelf - Optimized for 60Hz Thump)
+        // 1. Headroom Gain (Prevents Clipping when Bass is boosted)
+        // We lower the volume by 20% entering the chain so Bass Boost doesn't hit red lining.
+        const headroomGain = ctx.createGain();
+        headroomGain.gain.value = 0.8; 
+
+        // 2. Bass Boost (LowShelf)
         const bassNode = ctx.createBiquadFilter(); 
         bassNode.type = 'lowshelf'; 
-        bassNode.frequency.value = 60; 
+        bassNode.frequency.value = 65; // Slightly higher punch
 
-        // B. LoFi Filter (LowPass)
+        // 3. LoFi Filter (LowPass)
         const lofiFilter = ctx.createBiquadFilter();
         lofiFilter.type = 'lowpass';
         lofiFilter.frequency.value = 22000;
         lofiFilter.Q.value = 0.5;
 
-        // C. Mashup Separation Filters (New Feature)
-        // Filter for Track 2 (Vocals): High Pass to remove its bass/beat
+        // 4. Mashup Vocal Filter
         const vocalFilter = ctx.createBiquadFilter();
         vocalFilter.type = 'highpass';
-        vocalFilter.frequency.value = 350; // Cut everything below 350Hz
+        vocalFilter.frequency.value = 350; 
 
-        // D. Reverb (Convolver)
+        // 5. Reverb (Convolver)
         const convolver = ctx.createConvolver();
         const reverbGain = ctx.createGain();
         const dryGain = ctx.createGain();
         
-        // Generate Impulse Response for Reverb
+        // Impulse Response
         const rate = ctx.sampleRate;
         const length = rate * 2.5; 
         const impulse = ctx.createBuffer(2, length, rate);
@@ -92,46 +95,52 @@ export const Player: React.FC<PlayerProps> = ({ song, onBack }) => {
         }
         convolver.buffer = impulse;
 
-        // E. 8D Panner
+        // 6. 8D Panner
         const panner = ctx.createStereoPanner();
 
-        // F. Master Compressor
+        // 7. Master Limiter/Compressor (Soft Clipper to stop "Bitchiri Sound")
         const compressor = ctx.createDynamicsCompressor();
-        compressor.threshold.value = -10;
-        compressor.ratio.value = 12;
+        compressor.threshold.value = -12; // Start compressing earlier
+        compressor.knee.value = 30; // Soft knee
+        compressor.ratio.value = 6; // Gentle compression
+        compressor.attack.value = 0.003;
+        compressor.release.value = 0.25;
 
         const analyser = ctx.createAnalyser();
         analyser.fftSize = 256;
 
-        // --- Connections ---
+        // --- Routing Connections ---
+        
+        // Mix inputs
         const gain1 = ctx.createGain();
         source1.connect(gain1);
-        gain1.connect(bassNode); // Track 1 gets Bass Boost directly
+        gain1.connect(headroomGain);
 
         let gain2 = null;
         if (source2) {
             gain2 = ctx.createGain();
             source2.connect(gain2);
-            // MASHUP LOGIC: Connect Track 2 to Vocal Filter (High Pass)
             if (song.type === 'mashup') {
                 gain2.connect(vocalFilter); 
-                vocalFilter.connect(bassNode); // Merge back into main chain
+                vocalFilter.connect(headroomGain);
             } else {
-                gain2.connect(bassNode);
+                gain2.connect(headroomGain);
             }
         }
 
+        // Chain: Headroom -> Bass -> LoFi -> Reverb Split
+        headroomGain.connect(bassNode);
         bassNode.connect(lofiFilter);
         
-        // Reverb Split
         lofiFilter.connect(dryGain);
         lofiFilter.connect(convolver);
         convolver.connect(reverbGain);
 
-        // Rejoin
+        // Rejoin at Panner (8D)
         dryGain.connect(panner);
         reverbGain.connect(panner);
 
+        // Master Out
         panner.connect(compressor);
         compressor.connect(analyser);
         analyser.connect(ctx.destination);
@@ -158,45 +167,38 @@ export const Player: React.FC<PlayerProps> = ({ song, onBack }) => {
     const now = ctx.currentTime;
     const RAMPSPEED = 0.1;
 
-    // A. Speed & Pitch Control (DJ Mode)
-    // If Vinyl Mode is ON, Speed affects pitch natively.
-    // If Vinyl Mode is OFF, 'preservesPitch' is true.
-    // 'pitchShift' variable simulates Key change by slightly altering playback rate if in Vinyl mode, 
-    // or we use it as a wrapper for speed in Digital mode.
-    
-    // Effective Speed = Base Speed + Pitch Shift Offset
-    let effectiveSpeed = speed;
-    
-    audioRef.current.playbackRate = effectiveSpeed;
-    audioRef.current.preservesPitch = !vinylMode; // Digital Mode = true
+    // Speed Logic
+    audioRef.current.playbackRate = speed;
+    audioRef.current.preservesPitch = !vinylMode; 
 
     if (audioRef2.current) {
-        audioRef2.current.playbackRate = effectiveSpeed;
+        audioRef2.current.playbackRate = speed;
         audioRef2.current.preservesPitch = !vinylMode;
     }
     
-    // B. Bass 
+    // Safe Bass Boost (0 to 15dB max)
+    // Prevents extreme clipping
     bassNode.gain.setTargetAtTime(bass, now, RAMPSPEED);
 
-    // C. LoFi Frequency
+    // LoFi
     if (isLofi) {
-        lofiFilter.frequency.setTargetAtTime(1200, now, 0.5); 
+        lofiFilter.frequency.setTargetAtTime(1000, now, 0.5); 
     } else {
         lofiFilter.frequency.setTargetAtTime(22000, now, 0.5);
     }
 
-    // D. Reverb Mix
+    // Reverb
     reverbGain.gain.setTargetAtTime(reverb, now, RAMPSPEED);
     dryGain.gain.setTargetAtTime(1 - (reverb * 0.4), now, RAMPSPEED);
 
-    // E. Mashup Balance
+    // Mashup
     if (gain2) {
         gain1.gain.setTargetAtTime(Math.cos(mashupMix * 0.5 * Math.PI), now, RAMPSPEED);
         gain2.gain.setTargetAtTime(Math.cos((1 - mashupMix) * 0.5 * Math.PI), now, RAMPSPEED);
     }
-  }, [speed, bass, reverb, isLofi, mashupMix, vinylMode, pitchShift]);
+  }, [speed, bass, reverb, isLofi, mashupMix, vinylMode]);
 
-  // --- 3. MASHUP AUTO-SYNC ---
+  // --- 3. MASHUP SYNC ---
   useEffect(() => {
       if(song.mashupUrl && isPlaying) {
           syncIntervalRef.current = window.setInterval(() => {
@@ -217,6 +219,7 @@ export const Player: React.FC<PlayerProps> = ({ song, onBack }) => {
   useEffect(() => {
     const animate = () => {
       if (is8D && nodesRef.current) {
+        // Smooth rotation
         panAngleRef.current += 0.008 * speed; 
         nodesRef.current.panner.pan.value = Math.sin(panAngleRef.current);
       } else if (nodesRef.current) {
@@ -251,7 +254,7 @@ export const Player: React.FC<PlayerProps> = ({ song, onBack }) => {
       setVinylMode(false);
   };
 
-  // --- 5. EXPORT ENGINE ---
+  // --- 5. EXPORT ---
   const handleExport = async () => {
       if (!song.audioUrl) return;
       setIsExporting(true);
@@ -278,18 +281,17 @@ export const Player: React.FC<PlayerProps> = ({ song, onBack }) => {
             source.detune.value = pitchCorrectionCents;
         }
 
+        const headroomGain = offlineCtx.createGain();
+        headroomGain.gain.value = 0.8;
+
         const bassNode = offlineCtx.createBiquadFilter();
         bassNode.type = 'lowshelf';
-        bassNode.frequency.value = 60;
+        bassNode.frequency.value = 65;
         bassNode.gain.value = bass;
 
         const lofiFilter = offlineCtx.createBiquadFilter();
         lofiFilter.type = 'lowpass';
-        lofiFilter.frequency.value = isLofi ? 1200 : 22000;
-
-        // Apply Vocal Cut logic if Mashup track 1 (Simulated for single file export)
-        // Note: Real mashup export needs fetch of both files. 
-        // For prototype, we export Main Track 1 with FX.
+        lofiFilter.frequency.value = isLofi ? 1000 : 22000;
 
         const convolver = offlineCtx.createConvolver();
         const length = 44100 * 2.5;
@@ -308,8 +310,11 @@ export const Player: React.FC<PlayerProps> = ({ song, onBack }) => {
         dryGain.gain.value = 1 - (reverb * 0.4);
 
         const compressor = offlineCtx.createDynamicsCompressor();
+        compressor.threshold.value = -12;
+        compressor.ratio.value = 6;
 
-        source.connect(bassNode);
+        source.connect(headroomGain);
+        headroomGain.connect(bassNode);
         bassNode.connect(lofiFilter);
         lofiFilter.connect(dryGain);
         lofiFilter.connect(convolver);
@@ -327,7 +332,7 @@ export const Player: React.FC<PlayerProps> = ({ song, onBack }) => {
 
         const a = document.createElement("a");
         a.href = url;
-        a.download = `Remixed_${song.title}_${speed}x.wav`;
+        a.download = `Remixed_${song.title}.wav`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
@@ -371,7 +376,7 @@ export const Player: React.FC<PlayerProps> = ({ song, onBack }) => {
              <h5 className="text-[10px] text-neon-blue font-bold tracking-[0.2em] uppercase mb-1">
                  {song.type === 'dj_mode' ? 'DJ CLUB DECK' : 'PRO STUDIO'}
              </h5>
-             <span className="text-xs text-gray-400">{song.type === 'mashup' ? 'Dual Deck Sync' : 'Engine V4.5'}</span>
+             <span className="text-xs text-gray-400">{song.type === 'mashup' ? 'Dual Deck Sync' : 'Engine V5.0 (No Distortion)'}</span>
         </div>
         <button 
             onClick={handleExport} 
@@ -489,35 +494,20 @@ export const Player: React.FC<PlayerProps> = ({ song, onBack }) => {
                          <span className="text-white font-mono bg-white/10 px-2 py-0.5 rounded">{Math.round(speed * 100)}%</span>
                      </div>
                      <input 
-                        type="range" min="0.5" max="2.0" step="0.01" 
+                        type="range" min="0.5" max="1.5" step="0.01" 
                         value={speed} onChange={(e) => setSpeed(parseFloat(e.target.value))}
                         className="w-full h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-neon-blue"
                      />
                  </div>
 
-                 {/* KEY CONTROL / PITCH */}
-                 <div className="space-y-2">
-                     <div className="flex justify-between text-xs text-gray-400">
-                         <span className="flex items-center gap-2"><Sliders className="w-3 h-3" /> Key Shift</span>
-                         <span className="text-white font-mono bg-white/10 px-2 py-0.5 rounded">{vinylMode ? 'Linked' : 'Digital'}</span>
-                     </div>
-                     <div className="flex gap-2">
-                         <button onClick={() => setSpeed(s => Math.max(0.5, s - 0.05))} className="px-3 py-1 bg-white/5 rounded text-xs hover:bg-white/10 text-white">-</button>
-                         <div className="flex-1 text-center text-xs text-gray-500 py-1">
-                             Use Speed Slider in Vinyl Mode for best Pitch effect
-                         </div>
-                         <button onClick={() => setSpeed(s => Math.min(2.0, s + 0.05))} className="px-3 py-1 bg-white/5 rounded text-xs hover:bg-white/10 text-white">+</button>
-                     </div>
-                 </div>
-
                  {/* Bass */}
                  <div className="space-y-2">
                      <div className="flex justify-between text-xs text-gray-400">
-                         <span className="flex items-center gap-2"><Zap className="w-3 h-3" /> Sub Bass Boost</span>
-                         <span className="text-white font-mono bg-white/10 px-2 py-0.5 rounded">{Math.round((bass/20)*100)}%</span>
+                         <span className="flex items-center gap-2"><Zap className="w-3 h-3" /> Clean Bass Boost</span>
+                         <span className="text-white font-mono bg-white/10 px-2 py-0.5 rounded">{Math.round((bass/12)*100)}%</span>
                      </div>
                      <input 
-                        type="range" min="0" max="20" step="1" 
+                        type="range" min="0" max="12" step="1" 
                         value={bass} onChange={(e) => setBass(parseFloat(e.target.value))}
                         className="w-full h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-neon-pink"
                      />
