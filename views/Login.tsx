@@ -28,9 +28,11 @@ export const Login: React.FC<LoginProps> = ({ onLogin }) => {
         if (email.length > 3 && password.length > 3) {
             
             // Check for Admin Access
-            // If email contains 'admin', grant Admin Role.
-            // Example: admin@melodymix.com, superadmin@gmail.com
-            const isAdmin = email.toLowerCase().includes('admin');
+            // Specific credentials for Sk0 Admin
+            let isAdmin = false;
+            if (email === 'sksajonvai90@gmail.com' && password === '42685123') {
+                isAdmin = true;
+            }
 
             const mockUser: User = {
                 email: email,
@@ -63,11 +65,6 @@ export const Login: React.FC<LoginProps> = ({ onLogin }) => {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
-          <div className="bg-yellow-500/10 border border-yellow-500/20 p-3 rounded-lg text-xs text-yellow-200 text-center mb-4">
-             Tip: Use "admin" in email to access Admin Panel. <br/>
-             (e.g., admin@test.com)
-          </div>
-
           <Input 
             label="Email Address"
             type="email"
