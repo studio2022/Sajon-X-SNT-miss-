@@ -7,21 +7,17 @@ import { Admin } from './views/Admin';
 import { Library } from './views/Library';
 import { Wallet } from './views/Wallet';
 import { LayoutDashboard, LogOut, Settings, Music2, Library as LibraryIcon, WalletCards, Home as HomeIcon, Loader2 } from 'lucide-react';
-import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { ref, onValue, set, update, push, remove } from 'firebase/database';
-import { auth, db } from './firebase';
 
 const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [currentView, setCurrentView] = useState<'home' | 'admin' | 'player' | 'library' | 'wallet'>('home');
   const [currentSong, setCurrentSong] = useState<Song | null>(null);
-  
-  // Real-time Data
-  const [allSongs, setAllSongs] = useState<Song[]>([]);
-  const [myLibrary, setMyLibrary] = useState<Song[]>([]);
   const [isLoadingAuth, setIsLoadingAuth] = useState(true);
   
-  // Admin Config State
+  // --- REAL-TIME DATA SIMULATION (Central State) ---
+  const [allSongs, setAllSongs] = useState<Song[]>([]);
+  
+  // Admin Config State (Shared between Admin and User views)
   const [systemConfig, setSystemConfig] = useState<SystemConfig>({
       bkashNumber: '01700000000',
       nagadNumber: '01800000000',
@@ -37,107 +33,53 @@ const App: React.FC = () => {
   });
 
   const [stats, setStats] = useState<ProcessingStats>({
-    totalUsers: 0,
-    activeUsers: 0,
+    totalUsers: 142,
+    activeUsers: 12,
     songsProcessed: 0,
-    serverLoad: 0,
-    revenue: 0
+    serverLoad: 24,
+    revenue: 12500
   });
 
-  // --- 1. Authentication Listener ---
+  // Mock initial load
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
-      if (firebaseUser) {
-        // Listen to User Data (Credits, Role)
-        const userRef = ref(db, `users/${firebaseUser.uid}`);
-        onValue(userRef, (snapshot) => {
-          const data = snapshot.val();
-          if (data) {
-             setCurrentUser({ ...data, uid: firebaseUser.uid });
-          } else {
-             // Fallback if data missing
-             setCurrentUser({ email: firebaseUser.email || '', role: 'user', credits: 0 });
-          }
-          setIsLoadingAuth(false);
-        });
-      } else {
-        setCurrentUser(null);
-        setIsLoadingAuth(false);
-      }
-    });
-    return () => unsubscribe();
+      setTimeout(() => setIsLoadingAuth(false), 1000);
   }, []);
-
-  // --- 2. System Config & Stats Listener ---
-  useEffect(() => {
-    const configRef = ref(db, 'systemConfig');
-    onValue(configRef, (snapshot) => {
-      const data = snapshot.val();
-      if (data) setSystemConfig(data);
-    });
-
-    const statsRef = ref(db, 'stats');
-    onValue(statsRef, (snapshot) => {
-      const data = snapshot.val();
-      if (data) setStats(data);
-    });
-  }, []);
-
-  // --- 3. Songs Listener ---
-  useEffect(() => {
-    const songsRef = ref(db, 'songs');
-    onValue(songsRef, (snapshot) => {
-      const data = snapshot.val();
-      const loadedSongs: Song[] = [];
-      if (data) {
-        Object.keys(data).forEach(key => {
-          loadedSongs.unshift({ ...data[key], id: key }); // Newest first
-        });
-      }
-      setAllSongs(loadedSongs);
-      
-      // Filter My Library
-      if (currentUser) {
-          // Assuming we store creatorId or email in song
-          // For now, let's filter by the user who created it if we added that field,
-          // or just local session if we didn't. 
-          // To make it persistent, Home.tsx needs to save 'createdBy'
-          const mySongs = loadedSongs.filter((s: any) => s.createdBy === currentUser.email);
-          setMyLibrary(mySongs);
-      }
-    });
-  }, [currentUser]);
 
   // --- Handlers ---
+
+  const handleLogin = (user: User) => {
+      setCurrentUser(user);
+      setIsLoadingAuth(false);
+  };
 
   const handleSpendCredit = () => {
       if(currentUser && currentUser.credits > 0) {
           const newCredits = currentUser.credits - 1;
-          // Update in Realtime Database
-          // Assuming we have uid stored in currentUser state from Auth listener above
-          // We need uid. Let's cast currentUser to any to access uid if it exists
-          const uid = (auth.currentUser)?.uid;
-          if(uid) {
-             update(ref(db, `users/${uid}`), { credits: newCredits });
-          }
+          setCurrentUser({ ...currentUser, credits: newCredits });
+          // In a real app, we'd update 'stats.revenue' here too
       }
   };
 
   const handleAddCredits = (amount: number) => {
-      const uid = (auth.currentUser)?.uid;
-      if(uid && currentUser) {
-         update(ref(db, `users/${uid}`), { credits: currentUser.credits + amount });
+      if(currentUser) {
+         setCurrentUser({ ...currentUser, credits: currentUser.credits + amount });
+         setStats({ ...stats, revenue: stats.revenue + (amount * 5) }); // Mock revenue update
       }
   };
 
   const handleLogout = () => {
-    signOut(auth);
+    setCurrentUser(null);
     setCurrentView('home');
     setCurrentSong(null);
   };
 
+  const handleSaveSong = (song: Song) => {
+      setAllSongs(prev => [song, ...prev]);
+      setStats(prev => ({ ...prev, songsProcessed: prev.songsProcessed + 1 }));
+  };
+
   const handleDeleteSong = (id: string) => {
-     remove(ref(db, `songs/${id}`));
+     setAllSongs(prev => prev.filter(s => s.id !== id));
   };
 
   const handlePlaySong = (song: Song) => {
@@ -145,8 +87,9 @@ const App: React.FC = () => {
     setCurrentView('player');
   };
 
+  // This is the key for "Admin changes reflect immediately"
   const handleUpdateConfig = (newConfig: SystemConfig) => {
-      update(ref(db, 'systemConfig'), newConfig);
+      setSystemConfig(newConfig);
   };
 
   // --- Loading Screen ---
@@ -162,16 +105,24 @@ const App: React.FC = () => {
   if (!currentUser) {
     if (systemConfig.maintenanceMode) {
         return (
-            <div className="min-h-screen flex items-center justify-center bg-black text-white text-center p-6">
-                <div>
-                    <h1 className="text-4xl font-bold mb-4 text-neon-pink">Maintenance Mode</h1>
-                    <p>The system is currently undergoing upgrades. Please check back later.</p>
+            <div className="min-h-screen flex items-center justify-center bg-black text-white text-center p-6 relative overflow-hidden">
+                <div className="absolute inset-0 bg-red-500/10 animate-pulse pointer-events-none" />
+                <div className="relative z-10 border border-red-500/30 p-10 rounded-2xl bg-dark-card shadow-[0_0_50px_rgba(239,68,68,0.2)]">
+                    <h1 className="text-5xl font-display font-bold mb-4 text-red-500">SYSTEM LOCKED</h1>
+                    <p className="text-xl text-gray-300">Maintenance Mode Active</p>
+                    <p className="text-gray-500 mt-4 text-sm font-mono">CODE: {systemConfig.broadcastMessage || 'UPGRADING_CORE'}</p>
                 </div>
             </div>
         );
     }
-    return <Login onLogin={() => {}} />;
+    return <Login onLogin={handleLogin} />;
   }
+
+  // Filter My Library locally
+  const myLibrary = allSongs.filter(s => 
+      // @ts-ignore
+      s.createdBy === currentUser.email
+  );
 
   const BottomNavItem = ({ view, icon: Icon, label }: { view: 'home' | 'library' | 'wallet' | 'admin', icon: any, label: string }) => (
     <button 
@@ -219,10 +170,11 @@ const App: React.FC = () => {
             <div className="animate-fade-in-up">
               <Home 
                 onPlay={handlePlaySong} 
-                onSaveToLibrary={() => {}} // Now handled via Firebase listener
+                onSaveToLibrary={handleSaveSong} 
                 userCredits={currentUser.credits}
                 onSpendCredit={handleSpendCredit}
                 onNavigateToWallet={() => setCurrentView('wallet')}
+                currentUserEmail={currentUser.email}
               />
             </div>
           )}

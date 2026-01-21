@@ -18,14 +18,13 @@ export const Admin: React.FC<AdminProps> = ({ stats, recentUploads, onDelete, co
   const [isSaving, setIsSaving] = useState(false);
   const [broadcastMsg, setBroadcastMsg] = useState('');
 
-  // Sync with incoming config props in case they update from Realtime DB
   useEffect(() => {
       setLocalConfig(config);
   }, [config]);
 
   const handleSave = () => {
     setIsSaving(true);
-    // Directly call the handler which updates Firebase
+    // Instant Update via Prop Callback
     onUpdateConfig(localConfig);
     setTimeout(() => {
         setIsSaving(false);
@@ -44,7 +43,7 @@ export const Admin: React.FC<AdminProps> = ({ stats, recentUploads, onDelete, co
       <div className="flex flex-col md:flex-row justify-between items-end gap-4">
         <div>
           <h2 className="text-3xl font-display font-bold text-white">Admin Control</h2>
-          <p className="text-gray-400">Master Panel V3.0 (Firebase Connected)</p>
+          <p className="text-gray-400">Master Panel (Simulated Real-time)</p>
         </div>
         <div className="flex bg-dark-card p-1 rounded-xl border border-gray-800">
             {tabs.map(tab => (
@@ -90,12 +89,13 @@ export const Admin: React.FC<AdminProps> = ({ stats, recentUploads, onDelete, co
                     <div className="space-y-3">
                         <ToggleRow 
                             label="Maintenance Mode" 
-                            desc="Lock app for all users"
+                            desc="Lock app for all users immediately"
                             active={localConfig.maintenanceMode} 
                             onToggle={() => {
                                 const newVal = !localConfig.maintenanceMode;
-                                setLocalConfig({...localConfig, maintenanceMode: newVal});
-                                onUpdateConfig({...localConfig, maintenanceMode: newVal});
+                                const newConfig = {...localConfig, maintenanceMode: newVal};
+                                setLocalConfig(newConfig);
+                                onUpdateConfig(newConfig);
                             }} 
                         />
                         <ToggleRow 
@@ -104,8 +104,9 @@ export const Admin: React.FC<AdminProps> = ({ stats, recentUploads, onDelete, co
                             active={localConfig.autoApprovePayments} 
                             onToggle={() => {
                                 const newVal = !localConfig.autoApprovePayments;
-                                setLocalConfig({...localConfig, autoApprovePayments: newVal});
-                                onUpdateConfig({...localConfig, autoApprovePayments: newVal});
+                                const newConfig = {...localConfig, autoApprovePayments: newVal};
+                                setLocalConfig(newConfig);
+                                onUpdateConfig(newConfig);
                             }} 
                         />
                     </div>
@@ -126,7 +127,7 @@ export const Admin: React.FC<AdminProps> = ({ stats, recentUploads, onDelete, co
           <div className="bg-dark-card border border-gray-800 rounded-2xl p-8 animate-fade-in-up">
               <div className="flex justify-between items-center mb-8 border-b border-gray-800 pb-4">
                  <h3 className="text-xl font-bold text-white">Global Configuration</h3>
-                 <Button onClick={handleSave} isLoading={isSaving} icon={<Save className="w-4 h-4"/>}>Save All Changes</Button>
+                 <Button onClick={handleSave} isLoading={isSaving} icon={<Save className="w-4 h-4"/>}>Save & Apply Instantly</Button>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-10">

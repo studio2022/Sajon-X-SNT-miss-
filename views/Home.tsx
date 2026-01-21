@@ -1,11 +1,7 @@
 import React, { useState } from 'react';
 import { Upload, Sparkles, Music, Mic2, Disc, Play, Download, Layers, Type, Wand2, Coins, Moon, Zap, Wind, Move3d } from 'lucide-react';
 import { Button } from '../components/Button';
-import { Input } from '../components/Input';
 import { ProcessingType, Song, PlaybackConfig } from '../types';
-import { ref as dbRef, push, set } from 'firebase/database';
-import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { auth, db, storage } from '../firebase';
 
 interface HomeProps {
   onPlay: (song: Song) => void;
@@ -13,11 +9,12 @@ interface HomeProps {
   userCredits: number;
   onSpendCredit: () => void;
   onNavigateToWallet: () => void;
+  currentUserEmail: string;
 }
 
 type StudioMode = 'remix' | 'mashup' | 'lyric';
 
-export const Home: React.FC<HomeProps> = ({ onPlay, onSaveToLibrary, userCredits, onSpendCredit, onNavigateToWallet }) => {
+export const Home: React.FC<HomeProps> = ({ onPlay, onSaveToLibrary, userCredits, onSpendCredit, onNavigateToWallet, currentUserEmail }) => {
   const [mode, setMode] = useState<StudioMode>('remix');
   
   // File States
@@ -64,22 +61,18 @@ export const Home: React.FC<HomeProps> = ({ onPlay, onSaveToLibrary, userCredits
     // Spend Credit
     onSpendCredit(); 
 
-    try {
-        // 1. Upload File 1 to Storage
-        const fileRef1 = storageRef(storage, `uploads/${Date.now()}_${file1.name}`);
-        await uploadBytes(fileRef1, file1);
-        const url1 = await getDownloadURL(fileRef1);
-
+    // Simulate Processing Time
+    setTimeout(() => {
+        // Use Browser Blob URLs instead of Firebase Storage
+        const url1 = URL.createObjectURL(file1);
         let url2 = undefined;
         if (mode === 'mashup' && file2) {
-            const fileRef2 = storageRef(storage, `uploads/${Date.now()}_${file2.name}`);
-            await uploadBytes(fileRef2, file2);
-            url2 = await getDownloadURL(fileRef2);
+            url2 = URL.createObjectURL(file2);
         }
 
         let finalType: ProcessingType = processingType;
         let title = file1.name.split('.')[0];
-        let artist = auth.currentUser?.email?.split('@')[0] || "Unknown Artist";
+        let artist = currentUserEmail?.split('@')[0] || "Unknown Artist";
 
         if (mode === 'mashup' && file2) {
             finalType = 'mashup';
@@ -116,10 +109,10 @@ export const Home: React.FC<HomeProps> = ({ onPlay, onSaveToLibrary, userCredits
         }
 
         const newSong: Song = {
-            id: '', // Will be set by Firebase push
+            id: Date.now().toString(),
             title: title,
             artist: artist,
-            duration: "3:42", // Mock duration as processing this client side is heavy without decoding
+            duration: "3:42", 
             uploadDate: new Date().toISOString(),
             status: 'ready',
             type: finalType,
@@ -129,22 +122,17 @@ export const Home: React.FC<HomeProps> = ({ onPlay, onSaveToLibrary, userCredits
             originalLyrics: mode === 'lyric' ? targetLyric : undefined,
             newLyrics: mode === 'lyric' ? replacementLyric : undefined,
             // @ts-ignore
-            createdBy: auth.currentUser?.email // Tracking for My Library
+            createdBy: currentUserEmail
         };
 
-        // Save to Realtime Database
-        const newSongRef = push(dbRef(db, 'songs'));
-        await set(newSongRef, newSong);
+        // Save locally in App.tsx state
+        onSaveToLibrary(newSong);
 
         // Update Local State for UI feedback
-        setGeneratedSong({ ...newSong, id: newSongRef.key! });
-        
-    } catch (error) {
-        console.error("Upload failed", error);
-        alert("Failed to process song. Please try again.");
-    } finally {
+        setGeneratedSong(newSong);
         setIsProcessing(false);
-    }
+
+    }, 3000); // 3 seconds fake processing
   };
 
   return (

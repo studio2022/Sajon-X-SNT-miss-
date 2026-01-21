@@ -2,12 +2,10 @@ import React, { useState } from 'react';
 import { Music2, Lock, Mail, ArrowRight, UserPlus, LogIn } from 'lucide-react';
 import { Button } from '../components/Button';
 import { Input } from '../components/Input';
-import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
-import { ref, set, get } from 'firebase/database';
-import { auth, db } from '../firebase';
+import { User } from '../types';
 
 interface LoginProps {
-  onLogin: (user: any) => void; 
+  onLogin: (user: User) => void; 
 }
 
 export const Login: React.FC<LoginProps> = ({ onLogin }) => {
@@ -22,38 +20,21 @@ export const Login: React.FC<LoginProps> = ({ onLogin }) => {
     setIsLoading(true);
     setError('');
 
-    try {
-      if (isSignUp) {
-        // Sign Up
-        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-        const user = userCredential.user;
-        
-        // Initial User Data
-        const userData = {
-          email: user.email,
-          role: 'user',
-          credits: 10, // Free credits
-        };
-        
-        await set(ref(db, 'users/' + user.uid), userData);
-        // onLogin will be handled by onAuthStateChanged in App.tsx
-      } else {
-        // Log In
-        await signInWithEmailAndPassword(auth, email, password);
-        // onLogin will be handled by onAuthStateChanged in App.tsx
-      }
-    } catch (err: any) {
-      console.error(err);
-      if (err.code === 'auth/invalid-credential') {
-         setError('Invalid email or password.');
-      } else if (err.code === 'auth/email-already-in-use') {
-         setError('Email is already registered.');
-      } else {
-         setError(err.message || 'Authentication failed');
-      }
-    } finally {
-      setIsLoading(false);
-    }
+    // Simulate Network Delay
+    setTimeout(() => {
+        setIsLoading(false);
+        if (email && password) {
+            // Mock Login Success
+            const mockUser: User = {
+                email: email,
+                role: email.includes('admin') ? 'admin' : 'user', // Backdoor for admin: use 'admin' in email
+                credits: isSignUp ? 20 : 10, // Bonus for sign up
+            };
+            onLogin(mockUser);
+        } else {
+            setError('Please enter valid credentials.');
+        }
+    }, 1500);
   };
 
   return (
@@ -77,7 +58,7 @@ export const Login: React.FC<LoginProps> = ({ onLogin }) => {
           <Input 
             label="Email Address"
             type="email"
-            placeholder="name@example.com"
+            placeholder="admin@melodymix.com (for admin)"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             icon={<Mail className="w-4 h-4" />}
