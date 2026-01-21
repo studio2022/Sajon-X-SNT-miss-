@@ -5,7 +5,7 @@ export interface User {
   isBanned?: boolean;
 }
 
-export type ProcessingType = 'slowed_reverb' | 'lofi' | 'nightcore' | '8d_audio' | 'mashup' | 'lyric_swap';
+export type ProcessingType = 'slowed_reverb' | 'lofi' | 'nightcore' | '8d_audio' | 'mashup' | 'lyric_swap' | 'dj_mode';
 
 export interface PlaybackConfig {
   // Core Audio Params

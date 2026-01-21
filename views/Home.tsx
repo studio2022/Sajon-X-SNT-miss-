@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Upload, Sparkles, Music, Mic2, Disc, Play, Download, Layers, Type, Wand2, Coins, Moon, Zap, Wind, Move3d } from 'lucide-react';
+import { Upload, Sparkles, Music, Mic2, Disc, Play, Download, Layers, Type, Wand2, Coins, Moon, Zap, Wind, Move3d, Speaker, Radio, Clock } from 'lucide-react';
 import { Button } from '../components/Button';
 import { ProcessingType, Song, PlaybackConfig } from '../types';
 
@@ -12,7 +12,7 @@ interface HomeProps {
   currentUserEmail: string;
 }
 
-type StudioMode = 'remix' | 'mashup' | 'lyric';
+type StudioMode = 'remix' | 'mashup' | 'lyric' | 'dj';
 
 export const Home: React.FC<HomeProps> = ({ onPlay, onSaveToLibrary, userCredits, onSpendCredit, onNavigateToWallet, currentUserEmail }) => {
   const [mode, setMode] = useState<StudioMode>('remix');
@@ -27,6 +27,9 @@ export const Home: React.FC<HomeProps> = ({ onPlay, onSaveToLibrary, userCredits
   const [processingType, setProcessingType] = useState<ProcessingType>('slowed_reverb');
   const [isProcessing, setIsProcessing] = useState(false);
   const [generatedSong, setGeneratedSong] = useState<Song | null>(null);
+  
+  // Local "Recent Mixes" state just for this session demo
+  const [recentMixes, setRecentMixes] = useState<Song[]>([]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>, slot: 1 | 2) => {
     if (e.target.files && e.target.files[0]) {
@@ -80,6 +83,9 @@ export const Home: React.FC<HomeProps> = ({ onPlay, onSaveToLibrary, userCredits
         } else if (mode === 'lyric') {
             finalType = 'lyric_swap';
             title = `${title} (Lyric Edit)`;
+        } else if (mode === 'dj') {
+            finalType = 'dj_mode';
+            title = `DJ ${title} (Club Mix)`;
         }
 
         // --- Configuration Logic ---
@@ -107,6 +113,9 @@ export const Home: React.FC<HomeProps> = ({ onPlay, onSaveToLibrary, userCredits
         if (finalType === 'mashup') {
             config = { ...config, speed: 1.05, mashupBalance: 0.5 }; 
         }
+        if (finalType === 'dj_mode') {
+            config = { ...config, speed: 1.15, bassBoost: 12, pitch: 1 };
+        }
 
         const newSong: Song = {
             id: Date.now().toString(),
@@ -125,14 +134,15 @@ export const Home: React.FC<HomeProps> = ({ onPlay, onSaveToLibrary, userCredits
             createdBy: currentUserEmail
         };
 
-        // Save locally in App.tsx state
+        // Save locally
         onSaveToLibrary(newSong);
+        setRecentMixes(prev => [newSong, ...prev]);
 
         // Update Local State for UI feedback
         setGeneratedSong(newSong);
         setIsProcessing(false);
 
-    }, 3000); // 3 seconds fake processing
+    }, 3000); 
   };
 
   return (
@@ -150,15 +160,18 @@ export const Home: React.FC<HomeProps> = ({ onPlay, onSaveToLibrary, userCredits
       </div>
 
       {/* Mode Selector */}
-      <div className="flex justify-center mb-8">
-        <div className="bg-dark-card/50 backdrop-blur-lg p-1.5 rounded-2xl border border-white/10 flex gap-2 shadow-2xl">
-            <button onClick={() => setMode('remix')} className={`px-6 py-3 rounded-xl flex items-center gap-2 transition-all font-bold ${mode === 'remix' ? 'bg-gradient-to-r from-violet-600 to-indigo-600 text-white shadow-lg shadow-indigo-500/20' : 'text-gray-400 hover:text-white'}`}>
+      <div className="flex justify-center mb-8 overflow-x-auto">
+        <div className="bg-dark-card/50 backdrop-blur-lg p-1.5 rounded-2xl border border-white/10 flex gap-2 shadow-2xl min-w-max">
+            <button onClick={() => setMode('remix')} className={`px-4 lg:px-6 py-3 rounded-xl flex items-center gap-2 transition-all font-bold ${mode === 'remix' ? 'bg-gradient-to-r from-violet-600 to-indigo-600 text-white shadow-lg shadow-indigo-500/20' : 'text-gray-400 hover:text-white'}`}>
                 <Music className="w-4 h-4" /> Remix
             </button>
-            <button onClick={() => setMode('mashup')} className={`px-6 py-3 rounded-xl flex items-center gap-2 transition-all font-bold ${mode === 'mashup' ? 'bg-gradient-to-r from-pink-500 to-rose-500 text-white shadow-lg shadow-pink-500/20' : 'text-gray-400 hover:text-white'}`}>
+            <button onClick={() => setMode('dj')} className={`px-4 lg:px-6 py-3 rounded-xl flex items-center gap-2 transition-all font-bold ${mode === 'dj' ? 'bg-gradient-to-r from-green-500 to-emerald-600 text-white shadow-lg shadow-emerald-500/20' : 'text-gray-400 hover:text-white'}`}>
+                <Speaker className="w-4 h-4" /> DJ Mode
+            </button>
+            <button onClick={() => setMode('mashup')} className={`px-4 lg:px-6 py-3 rounded-xl flex items-center gap-2 transition-all font-bold ${mode === 'mashup' ? 'bg-gradient-to-r from-pink-500 to-rose-500 text-white shadow-lg shadow-pink-500/20' : 'text-gray-400 hover:text-white'}`}>
                 <Layers className="w-4 h-4" /> Mashup
             </button>
-            <button onClick={() => setMode('lyric')} className={`px-6 py-3 rounded-xl flex items-center gap-2 transition-all font-bold ${mode === 'lyric' ? 'bg-gradient-to-r from-amber-400 to-orange-500 text-black shadow-lg shadow-orange-500/20' : 'text-gray-400 hover:text-white'}`}>
+            <button onClick={() => setMode('lyric')} className={`px-4 lg:px-6 py-3 rounded-xl flex items-center gap-2 transition-all font-bold ${mode === 'lyric' ? 'bg-gradient-to-r from-amber-400 to-orange-500 text-black shadow-lg shadow-orange-500/20' : 'text-gray-400 hover:text-white'}`}>
                 <Mic2 className="w-4 h-4" /> Lyric Lab
             </button>
         </div>
@@ -171,7 +184,8 @@ export const Home: React.FC<HomeProps> = ({ onPlay, onSaveToLibrary, userCredits
                 <h2 className="text-xl font-display font-bold text-white mb-4 flex items-center gap-2">
                     <Wand2 className="w-5 h-5 text-yellow-400" />
                     {mode === 'remix' && 'Upload Track'}
-                    {mode === 'mashup' && 'Fusion Engine (2 Tracks)'}
+                    {mode === 'dj' && 'DJ Booth (Bass & Speed)'}
+                    {mode === 'mashup' && 'Fusion Engine (Beat + Vocals)'}
                     {mode === 'lyric' && 'Voice Cloning & Text Edit'}
                 </h2>
 
@@ -181,7 +195,7 @@ export const Home: React.FC<HomeProps> = ({ onPlay, onSaveToLibrary, userCredits
                         <div className="w-16 h-16 bg-gradient-to-br from-gray-800 to-black rounded-2xl flex items-center justify-center mb-4 shadow-lg group-hover:scale-110 transition-transform">
                             {file1 ? <Music className="w-8 h-8 text-green-400" /> : <Upload className="w-8 h-8 text-gray-400" />}
                         </div>
-                        <p className="font-bold text-white text-lg">{file1 ? file1.name : (mode === 'mashup' ? 'Track 1 (Beat)' : 'Drop Your Song')}</p>
+                        <p className="font-bold text-white text-lg">{file1 ? file1.name : (mode === 'mashup' ? 'Track 1 (Beat/Instrumental)' : 'Drop Your Song')}</p>
                     </div>
                 </div>
 
@@ -196,7 +210,7 @@ export const Home: React.FC<HomeProps> = ({ onPlay, onSaveToLibrary, userCredits
                                 <div className="w-16 h-16 bg-gradient-to-br from-gray-800 to-black rounded-2xl flex items-center justify-center mb-4 shadow-lg group-hover:scale-110 transition-transform">
                                     {file2 ? <Music className="w-8 h-8 text-pink-400" /> : <Upload className="w-8 h-8 text-gray-400" />}
                                 </div>
-                                <p className="font-bold text-white text-lg">{file2 ? file2.name : 'Track 2 (Vocals)'}</p>
+                                <p className="font-bold text-white text-lg">{file2 ? file2.name : 'Track 2 (Vocals/Acapella)'}</p>
                             </div>
                         </div>
                     </div>
@@ -270,6 +284,35 @@ export const Home: React.FC<HomeProps> = ({ onPlay, onSaveToLibrary, userCredits
              )}
           </div>
       </div>
+
+      {/* RECENT CREATIONS GRID (Ram Seke) */}
+      {recentMixes.length > 0 && (
+          <div className="mt-12 animate-fade-in-up">
+              <h3 className="text-xl font-display font-bold text-white mb-6 flex items-center gap-2">
+                  <Radio className="w-5 h-5 text-neon-pink" /> Recent Creations (Quick Access)
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {recentMixes.map((song) => (
+                      <div key={song.id} className="bg-dark-card border border-gray-800 hover:border-gray-600 rounded-xl p-3 flex items-center gap-3 group transition-all cursor-pointer" onClick={() => onPlay(song)}>
+                           <div className="w-12 h-12 bg-gray-800 rounded-lg flex items-center justify-center">
+                               {song.type === 'mashup' ? <Layers className="w-6 h-6 text-neon-blue" /> : <Music className="w-6 h-6 text-neon-purple" />}
+                           </div>
+                           <div className="min-w-0 flex-1">
+                               <h4 className="font-bold text-white truncate text-sm">{song.title}</h4>
+                               <div className="flex items-center gap-2 text-[10px] text-gray-400 mt-0.5">
+                                    <span className="uppercase bg-white/5 px-1 rounded">{song.type}</span>
+                                    <span><Clock className="w-3 h-3 inline"/> Just now</span>
+                               </div>
+                           </div>
+                           <button className="p-2 bg-white/10 rounded-full group-hover:bg-neon-purple group-hover:text-white transition-colors">
+                               <Play className="w-4 h-4 fill-current"/>
+                           </button>
+                      </div>
+                  ))}
+              </div>
+          </div>
+      )}
+
     </div>
   );
 };
