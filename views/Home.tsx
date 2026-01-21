@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Upload, Sparkles, Music, Mic2, Disc, Play, Download, Zap, Headphones, Moon, Speaker, Layers, Repeat, Type, Wand2 } from 'lucide-react';
+import { Upload, Sparkles, Music, Mic2, Disc, Play, Download, Zap, Headphones, Moon, Speaker, Layers, Repeat, Type, Wand2, Coins } from 'lucide-react';
 import { Button } from '../components/Button';
 import { Input } from '../components/Input';
 import { ProcessingType, Song, PlaybackConfig } from '../types';
@@ -7,11 +7,14 @@ import { ProcessingType, Song, PlaybackConfig } from '../types';
 interface HomeProps {
   onPlay: (song: Song) => void;
   onSaveToLibrary: (song: Song) => void;
+  userCredits: number;
+  onSpendCredit: () => void;
+  onNavigateToWallet: () => void;
 }
 
 type StudioMode = 'remix' | 'mashup' | 'lyric';
 
-export const Home: React.FC<HomeProps> = ({ onPlay, onSaveToLibrary }) => {
+export const Home: React.FC<HomeProps> = ({ onPlay, onSaveToLibrary, userCredits, onSpendCredit, onNavigateToWallet }) => {
   const [mode, setMode] = useState<StudioMode>('remix');
   
   // File States
@@ -46,12 +49,18 @@ export const Home: React.FC<HomeProps> = ({ onPlay, onSaveToLibrary }) => {
   };
 
   const handleGenerate = () => {
+    if (userCredits <= 0) {
+        onNavigateToWallet();
+        return;
+    }
+
     if (!file1) return;
     if (mode === 'mashup' && !file2) return;
     if (mode === 'lyric' && (!targetLyric || !replacementLyric)) return;
 
     setIsProcessing(true);
     setGeneratedSong(null);
+    onSpendCredit(); // Deduct credit
     
     // Create Object URLs for playback
     const objectUrl1 = URL.createObjectURL(file1);
@@ -73,17 +82,21 @@ export const Home: React.FC<HomeProps> = ({ onPlay, onSaveToLibrary }) => {
         title = `${title} (AI Lyric Edit)`;
     }
 
-    // Default configs
-    let config: PlaybackConfig = {
-      speed: 1.0, preservesPitch: true, bassBoost: 0, reverbMix: 0, filterType: 'none', isSurround: false
+    // Default configs with new fields
+    let config: Partial<PlaybackConfig> = {
+      speed: 1.0, preservesPitch: true, volume: 1.0,
+      eqBass: 0, eqMid: 0, eqTreble: 0, gainBoost: 0,
+      isSurround: false, surroundSpeed: 0.01, stereoWidth: 50,
+      reverbMix: 0, reverbDecay: 3, filterType: 'none', filterFreq: 20000,
+      vinylNoise: 0, rainInterference: 0, lofiBitrate: false,
+      isReverse: false, fadeIn: false, fadeOut: false
     };
 
-    // Apply specific configs based on type
-    if (finalType === 'slowed_reverb') config = { ...config, speed: 0.85, bassBoost: 8, reverbMix: 0.4, filterType: 'lowpass' };
-    if (finalType === 'bed_slow') config = { ...config, speed: 0.75, bassBoost: 12, reverbMix: 0.7, filterType: 'lowpass' };
-    if (finalType === '12d_audio') config = { ...config, bassBoost: 4, reverbMix: 0.2, isSurround: true };
-    if (finalType === 'nightcore') config = { ...config, speed: 1.3, preservesPitch: false, bassBoost: 2 };
-    if (finalType === 'mashup') config = { ...config, bassBoost: 6, speed: 1.05 }; 
+    if (finalType === 'slowed_reverb') config = { ...config, speed: 0.85, eqBass: 8, reverbMix: 0.4, filterType: 'lowpass' };
+    if (finalType === 'bed_slow') config = { ...config, speed: 0.75, eqBass: 12, reverbMix: 0.7, filterType: 'lowpass' };
+    if (finalType === '12d_audio') config = { ...config, eqBass: 4, reverbMix: 0.2, isSurround: true };
+    if (finalType === 'nightcore') config = { ...config, speed: 1.3, preservesPitch: false, eqBass: 2 };
+    if (finalType === 'mashup') config = { ...config, eqBass: 6, speed: 1.05 }; 
 
     setTimeout(() => {
       setIsProcessing(false);
@@ -97,7 +110,7 @@ export const Home: React.FC<HomeProps> = ({ onPlay, onSaveToLibrary }) => {
         status: 'ready',
         type: finalType,
         audioUrl: objectUrl1,
-        mashupUrl: objectUrl2, // PASS SECOND URL
+        mashupUrl: objectUrl2, 
         config: config,
         originalLyrics: mode === 'lyric' ? targetLyric : undefined,
         newLyrics: mode === 'lyric' ? replacementLyric : undefined
@@ -116,13 +129,17 @@ export const Home: React.FC<HomeProps> = ({ onPlay, onSaveToLibrary }) => {
   ];
 
   return (
-    <div className="max-w-6xl mx-auto space-y-8">
-      {/* Colorful Title */}
-      <div className="text-center mb-6">
-        <h2 className="text-4xl font-display font-bold rainbow-text pb-2">
-           Magic Studio
-        </h2>
-        <p className="text-gray-400">Next-Gen Audio Manipulation</p>
+    <div className="max-w-6xl mx-auto space-y-8 mb-20">
+      {/* Header with Credits */}
+      <div className="flex justify-between items-center bg-dark-card/50 p-4 rounded-2xl border border-white/5 backdrop-blur-md">
+        <div>
+            <h2 className="text-xl font-display font-bold rainbow-text">Magic Studio</h2>
+            <p className="text-xs text-gray-400">Next-Gen Audio</p>
+        </div>
+        <button onClick={onNavigateToWallet} className="flex items-center gap-2 bg-gradient-to-r from-yellow-500 to-amber-600 px-4 py-2 rounded-xl text-black font-bold text-sm hover:scale-105 transition-transform">
+            <Coins className="w-4 h-4 fill-black/20" />
+            {userCredits} Credits
+        </button>
       </div>
 
       {/* Mode Selector */}
@@ -141,7 +158,7 @@ export const Home: React.FC<HomeProps> = ({ onPlay, onSaveToLibrary }) => {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-          {/* Left Panel: Inputs */}
+          {/* Inputs */}
           <div className="lg:col-span-7 space-y-6">
              <div className="bg-dark-card/50 backdrop-blur border border-white/5 rounded-3xl p-6">
                 <h2 className="text-xl font-display font-bold text-white mb-4 flex items-center gap-2">
@@ -159,7 +176,6 @@ export const Home: React.FC<HomeProps> = ({ onPlay, onSaveToLibrary }) => {
                             {file1 ? <Music className="w-8 h-8 text-green-400" /> : <Upload className="w-8 h-8 text-gray-400" />}
                         </div>
                         <p className="font-bold text-white text-lg">{file1 ? file1.name : (mode === 'mashup' ? 'Track 1 (Beat)' : 'Drop Your Song')}</p>
-                        {!file1 && <p className="text-sm text-gray-500 mt-2">MP3, WAV, FLAC</p>}
                     </div>
                 </div>
 
@@ -204,13 +220,12 @@ export const Home: React.FC<HomeProps> = ({ onPlay, onSaveToLibrary }) => {
                             onChange={(e) => setReplacementLyric(e.target.value)}
                             className="border-yellow-500/30 focus:border-yellow-500 focus:ring-yellow-500"
                         />
-                        <p className="text-xs text-gray-500 mt-2">* The AI will simulate the voice to perform the new text.</p>
                     </div>
                 )}
              </div>
           </div>
 
-          {/* Right Panel: Controls & Action */}
+          {/* Controls */}
           <div className="lg:col-span-5 space-y-6">
              {mode === 'remix' && (
                  <div className="bg-dark-card/50 backdrop-blur border border-white/5 p-6 rounded-3xl">
@@ -231,7 +246,7 @@ export const Home: React.FC<HomeProps> = ({ onPlay, onSaveToLibrary }) => {
                  </div>
              )}
 
-             <div className="pt-4">
+             <div className="pt-4 space-y-2">
                 <Button 
                     onClick={handleGenerate}
                     disabled={isProcessing || !file1 || (mode === 'mashup' && !file2) || (mode === 'lyric' && !targetLyric)}
@@ -239,8 +254,11 @@ export const Home: React.FC<HomeProps> = ({ onPlay, onSaveToLibrary }) => {
                     fullWidth
                     className={`h-16 text-lg font-bold tracking-wide shadow-xl ${isProcessing ? 'opacity-70' : 'bg-gradient-to-r from-violet-600 via-pink-600 to-orange-500 hover:from-violet-500 hover:to-orange-400 border-none'}`}
                 >
-                    {isProcessing ? 'Processing Audio...' : mode === 'mashup' ? 'Mix Tracks' : mode === 'lyric' ? 'Synthesize Voice' : 'Generate Remix'} <Sparkles className="w-5 h-5 ml-2 fill-white" />
+                    {isProcessing ? 'Processing...' : userCredits > 0 ? `Generate (1 Credit)` : 'Buy Credits to Generate'} <Sparkles className="w-5 h-5 ml-2 fill-white" />
                 </Button>
+                {userCredits === 0 && (
+                    <p className="text-center text-red-400 text-sm">Insufficient credits. Please top up.</p>
+                )}
              </div>
 
              {/* Result Card */}
@@ -263,7 +281,7 @@ export const Home: React.FC<HomeProps> = ({ onPlay, onSaveToLibrary }) => {
                                 <Play className="w-4 h-4 mr-2 fill-current" /> Play
                             </Button>
                             <Button onClick={handleDownload} variant="secondary" className="flex-1 py-3 text-sm hover:text-green-400 hover:border-green-400">
-                                <Download className="w-4 h-4 mr-2" /> Save to Gallery
+                                <Download className="w-4 h-4 mr-2" /> Gallery
                             </Button>
                         </div>
                     </div>
