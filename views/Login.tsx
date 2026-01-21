@@ -2,10 +2,12 @@ import React, { useState } from 'react';
 import { Music2, Lock, Mail, ArrowRight, UserPlus, LogIn } from 'lucide-react';
 import { Button } from '../components/Button';
 import { Input } from '../components/Input';
-import { User } from '../types';
+import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
+import { ref, set, get } from 'firebase/database';
+import { auth, db } from '../firebase';
 
 interface LoginProps {
-  onLogin: (user: User) => void;
+  onLogin: (user: any) => void; 
 }
 
 export const Login: React.FC<LoginProps> = ({ onLogin }) => {
@@ -15,38 +17,43 @@ export const Login: React.FC<LoginProps> = ({ onLogin }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
     setError('');
 
-    // Mock network delay
-    setTimeout(() => {
-      setIsLoading(false);
-      
-      // Admin Logic
-      if (email === 'sksajonvai90@gmail.com' && password === '42685123') {
-        onLogin({ email, role: 'admin' });
-        return;
-      } 
-      
-      // User Logic
-      if (!isSignUp) {
-        // Login Mode
-        if (email.includes('@') && password.length >= 6) {
-           onLogin({ email, role: 'user' });
-        } else {
-           setError('Invalid credentials. Please check your email and password.');
-        }
+    try {
+      if (isSignUp) {
+        // Sign Up
+        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+        const user = userCredential.user;
+        
+        // Initial User Data
+        const userData = {
+          email: user.email,
+          role: 'user',
+          credits: 10, // Free credits
+        };
+        
+        await set(ref(db, 'users/' + user.uid), userData);
+        // onLogin will be handled by onAuthStateChanged in App.tsx
       } else {
-        // Sign Up Mode
-        if (email.includes('@') && password.length >= 6) {
-           onLogin({ email, role: 'user' });
-        } else {
-           setError('Please provide a valid email and a password (min 6 chars).');
-        }
+        // Log In
+        await signInWithEmailAndPassword(auth, email, password);
+        // onLogin will be handled by onAuthStateChanged in App.tsx
       }
-    }, 1500);
+    } catch (err: any) {
+      console.error(err);
+      if (err.code === 'auth/invalid-credential') {
+         setError('Invalid email or password.');
+      } else if (err.code === 'auth/email-already-in-use') {
+         setError('Email is already registered.');
+      } else {
+         setError(err.message || 'Authentication failed');
+      }
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (

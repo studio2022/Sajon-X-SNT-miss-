@@ -1,8 +1,11 @@
 import React, { useState } from 'react';
-import { Upload, Sparkles, Music, Mic2, Disc, Play, Download, Zap, Headphones, Moon, Speaker, Layers, Repeat, Type, Wand2, Coins } from 'lucide-react';
+import { Upload, Sparkles, Music, Mic2, Disc, Play, Download, Layers, Type, Wand2, Coins, Moon, Zap, Wind, Move3d } from 'lucide-react';
 import { Button } from '../components/Button';
 import { Input } from '../components/Input';
 import { ProcessingType, Song, PlaybackConfig } from '../types';
+import { ref as dbRef, push, set } from 'firebase/database';
+import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { auth, db, storage } from '../firebase';
 
 interface HomeProps {
   onPlay: (song: Song) => void;
@@ -19,13 +22,11 @@ export const Home: React.FC<HomeProps> = ({ onPlay, onSaveToLibrary, userCredits
   
   // File States
   const [file1, setFile1] = useState<File | null>(null);
-  const [file2, setFile2] = useState<File | null>(null); // For Mashup
+  const [file2, setFile2] = useState<File | null>(null); 
   
-  // Lyric States
   const [targetLyric, setTargetLyric] = useState('');
   const [replacementLyric, setReplacementLyric] = useState('');
 
-  // Processing States
   const [processingType, setProcessingType] = useState<ProcessingType>('slowed_reverb');
   const [isProcessing, setIsProcessing] = useState(false);
   const [generatedSong, setGeneratedSong] = useState<Song | null>(null);
@@ -48,7 +49,7 @@ export const Home: React.FC<HomeProps> = ({ onPlay, onSaveToLibrary, userCredits
       document.body.removeChild(link);
   };
 
-  const handleGenerate = () => {
+  const handleGenerate = async () => {
     if (userCredits <= 0) {
         onNavigateToWallet();
         return;
@@ -56,85 +57,103 @@ export const Home: React.FC<HomeProps> = ({ onPlay, onSaveToLibrary, userCredits
 
     if (!file1) return;
     if (mode === 'mashup' && !file2) return;
-    if (mode === 'lyric' && (!targetLyric || !replacementLyric)) return;
 
     setIsProcessing(true);
     setGeneratedSong(null);
-    onSpendCredit(); // Deduct credit
     
-    // Create Object URLs for playback
-    const objectUrl1 = URL.createObjectURL(file1);
-    let objectUrl2 = undefined;
+    // Spend Credit
+    onSpendCredit(); 
 
-    if (mode === 'mashup' && file2) {
-        objectUrl2 = URL.createObjectURL(file2);
+    try {
+        // 1. Upload File 1 to Storage
+        const fileRef1 = storageRef(storage, `uploads/${Date.now()}_${file1.name}`);
+        await uploadBytes(fileRef1, file1);
+        const url1 = await getDownloadURL(fileRef1);
+
+        let url2 = undefined;
+        if (mode === 'mashup' && file2) {
+            const fileRef2 = storageRef(storage, `uploads/${Date.now()}_${file2.name}`);
+            await uploadBytes(fileRef2, file2);
+            url2 = await getDownloadURL(fileRef2);
+        }
+
+        let finalType: ProcessingType = processingType;
+        let title = file1.name.split('.')[0];
+        let artist = auth.currentUser?.email?.split('@')[0] || "Unknown Artist";
+
+        if (mode === 'mashup' && file2) {
+            finalType = 'mashup';
+            title = `${title} x ${file2.name.split('.')[0]}`;
+        } else if (mode === 'lyric') {
+            finalType = 'lyric_swap';
+            title = `${title} (Lyric Edit)`;
+        }
+
+        // --- Configuration Logic ---
+        let config: Partial<PlaybackConfig> = {
+          speed: 1.0, pitch: 0, bassBoost: 0, reverbMix: 0, is8D: false, mashupBalance: 0.5,
+          isLofi: false, isHighQuality: true
+        };
+
+        if (finalType === 'slowed_reverb') {
+            config = { ...config, speed: 0.85, bassBoost: 8, reverbMix: 0.4 };
+            title += " (Slowed+Reverb)";
+        }
+        if (finalType === 'lofi') {
+            config = { ...config, isLofi: true, speed: 0.95, bassBoost: 4 };
+            title += " (Lofi Vibe)";
+        }
+        if (finalType === '8d_audio') {
+            config = { ...config, is8D: true, reverbMix: 0.2 };
+            title += " (8D Audio)";
+        }
+        if (finalType === 'nightcore') {
+            config = { ...config, speed: 1.25, pitch: 2, bassBoost: 4 };
+            title += " (Nightcore)";
+        }
+        if (finalType === 'mashup') {
+            config = { ...config, speed: 1.05, mashupBalance: 0.5 }; 
+        }
+
+        const newSong: Song = {
+            id: '', // Will be set by Firebase push
+            title: title,
+            artist: artist,
+            duration: "3:42", // Mock duration as processing this client side is heavy without decoding
+            uploadDate: new Date().toISOString(),
+            status: 'ready',
+            type: finalType,
+            audioUrl: url1,
+            mashupUrl: url2, 
+            config: config,
+            originalLyrics: mode === 'lyric' ? targetLyric : undefined,
+            newLyrics: mode === 'lyric' ? replacementLyric : undefined,
+            // @ts-ignore
+            createdBy: auth.currentUser?.email // Tracking for My Library
+        };
+
+        // Save to Realtime Database
+        const newSongRef = push(dbRef(db, 'songs'));
+        await set(newSongRef, newSong);
+
+        // Update Local State for UI feedback
+        setGeneratedSong({ ...newSong, id: newSongRef.key! });
+        
+    } catch (error) {
+        console.error("Upload failed", error);
+        alert("Failed to process song. Please try again.");
+    } finally {
+        setIsProcessing(false);
     }
-
-    let finalType: ProcessingType = processingType;
-    let title = file1.name.split('.')[0];
-    let artist = "MelodyMix AI";
-
-    if (mode === 'mashup' && file2) {
-        finalType = 'mashup';
-        title = `${title} x ${file2.name.split('.')[0]}`;
-    } else if (mode === 'lyric') {
-        finalType = 'lyric_swap';
-        title = `${title} (AI Lyric Edit)`;
-    }
-
-    // Default configs with new fields
-    let config: Partial<PlaybackConfig> = {
-      speed: 1.0, preservesPitch: true, volume: 1.0,
-      eqBass: 0, eqMid: 0, eqTreble: 0, gainBoost: 0,
-      isSurround: false, surroundSpeed: 0.01, stereoWidth: 50,
-      reverbMix: 0, reverbDecay: 3, filterType: 'none', filterFreq: 20000,
-      vinylNoise: 0, rainInterference: 0, lofiBitrate: false,
-      isReverse: false, fadeIn: false, fadeOut: false
-    };
-
-    if (finalType === 'slowed_reverb') config = { ...config, speed: 0.85, eqBass: 8, reverbMix: 0.4, filterType: 'lowpass' };
-    if (finalType === 'bed_slow') config = { ...config, speed: 0.75, eqBass: 12, reverbMix: 0.7, filterType: 'lowpass' };
-    if (finalType === '12d_audio') config = { ...config, eqBass: 4, reverbMix: 0.2, isSurround: true };
-    if (finalType === 'nightcore') config = { ...config, speed: 1.3, preservesPitch: false, eqBass: 2 };
-    if (finalType === 'mashup') config = { ...config, eqBass: 6, speed: 1.05 }; 
-
-    setTimeout(() => {
-      setIsProcessing(false);
-      
-      const newSong: Song = {
-        id: Math.random().toString(36).substr(2, 9),
-        title: title,
-        artist: artist,
-        duration: "3:42",
-        uploadDate: new Date().toISOString(),
-        status: 'ready',
-        type: finalType,
-        audioUrl: objectUrl1,
-        mashupUrl: objectUrl2, 
-        config: config,
-        originalLyrics: mode === 'lyric' ? targetLyric : undefined,
-        newLyrics: mode === 'lyric' ? replacementLyric : undefined
-      };
-
-      setGeneratedSong(newSong);
-      onSaveToLibrary(newSong); 
-    }, 2500);
   };
-
-  const remixOptions = [
-    { id: '12d_audio', label: '12D Max', icon: <Speaker className="w-5 h-5" />, color: 'cyan', desc: 'Hyper-Immersive' },
-    { id: 'bed_slow', label: 'Bed Mode', icon: <Moon className="w-5 h-5" />, color: 'indigo', desc: 'Sleep & Ambient' },
-    { id: 'slowed_reverb', label: 'Slowed', icon: <Music className="w-5 h-5" />, color: 'purple', desc: 'Cinematic' },
-    { id: 'nightcore', label: 'Nightcore', icon: <Zap className="w-5 h-5" />, color: 'pink', desc: 'Fast & High' },
-  ];
 
   return (
     <div className="max-w-6xl mx-auto space-y-8 mb-20">
-      {/* Header with Credits */}
+      {/* Header */}
       <div className="flex justify-between items-center bg-dark-card/50 p-4 rounded-2xl border border-white/5 backdrop-blur-md">
         <div>
             <h2 className="text-xl font-display font-bold rainbow-text">Magic Studio</h2>
-            <p className="text-xs text-gray-400">Next-Gen Audio</p>
+            <p className="text-xs text-gray-400">Create & Remix</p>
         </div>
         <button onClick={onNavigateToWallet} className="flex items-center gap-2 bg-gradient-to-r from-yellow-500 to-amber-600 px-4 py-2 rounded-xl text-black font-bold text-sm hover:scale-105 transition-transform">
             <Coins className="w-4 h-4 fill-black/20" />
@@ -168,7 +187,6 @@ export const Home: React.FC<HomeProps> = ({ onPlay, onSaveToLibrary, userCredits
                     {mode === 'lyric' && 'Voice Cloning & Text Edit'}
                 </h2>
 
-                {/* Upload Slot 1 */}
                 <div className={`relative border-2 border-dashed rounded-3xl p-8 text-center transition-all duration-300 group ${file1 ? 'border-green-500/50 bg-green-500/5' : 'border-gray-700 hover:border-gray-500 bg-black/20'}`}>
                     <input type="file" accept="audio/*" onChange={(e) => handleFileChange(e, 1)} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
                     <div className="flex flex-col items-center relative z-0">
@@ -179,7 +197,6 @@ export const Home: React.FC<HomeProps> = ({ onPlay, onSaveToLibrary, userCredits
                     </div>
                 </div>
 
-                {/* Mashup Upload Slot 2 */}
                 {mode === 'mashup' && (
                     <div className="mt-4 relative animate-fade-in-up">
                          <div className="flex items-center justify-center py-2">
@@ -196,32 +213,6 @@ export const Home: React.FC<HomeProps> = ({ onPlay, onSaveToLibrary, userCredits
                         </div>
                     </div>
                 )}
-
-                {/* Lyric Inputs */}
-                {mode === 'lyric' && (
-                    <div className="mt-4 bg-black/20 border border-white/5 rounded-2xl p-6 space-y-4 animate-fade-in-up">
-                        <div className="flex items-center gap-2 text-yellow-400 mb-2">
-                            <Type className="w-5 h-5" />
-                            <span className="font-bold">Text-to-Voice Replacement</span>
-                        </div>
-                        <Input 
-                            label="Original Line to Change"
-                            placeholder="e.g., 'The stars are shining bright'"
-                            value={targetLyric}
-                            onChange={(e) => setTargetLyric(e.target.value)}
-                        />
-                        <div className="flex justify-center text-gray-600">
-                             ↓
-                        </div>
-                        <Input 
-                            label="New Lyrics (AI Voice)"
-                            placeholder="e.g., 'The rainbow lights are glowing'"
-                            value={replacementLyric}
-                            onChange={(e) => setReplacementLyric(e.target.value)}
-                            className="border-yellow-500/30 focus:border-yellow-500 focus:ring-yellow-500"
-                        />
-                    </div>
-                )}
              </div>
           </div>
 
@@ -229,19 +220,24 @@ export const Home: React.FC<HomeProps> = ({ onPlay, onSaveToLibrary, userCredits
           <div className="lg:col-span-5 space-y-6">
              {mode === 'remix' && (
                  <div className="bg-dark-card/50 backdrop-blur border border-white/5 p-6 rounded-3xl">
-                    <h3 className="text-gray-400 text-sm font-bold uppercase tracking-wider mb-4">Select Style</h3>
+                    <h3 className="text-gray-400 text-sm font-bold uppercase tracking-wider mb-4">Select AI Preset</h3>
                     <div className="grid grid-cols-2 gap-3">
-                        {remixOptions.map(opt => (
-                            <button
-                                key={opt.id}
-                                onClick={() => setProcessingType(opt.id as ProcessingType)}
-                                className={`p-4 rounded-xl border text-left transition-all ${processingType === opt.id ? `bg-${opt.color}-500/10 border-${opt.color}-500 text-white ring-1 ring-${opt.color}-500` : 'border-gray-800 text-gray-500 hover:bg-white/5'}`}
-                            >
-                                <div className={`text-${opt.color}-500 mb-2`}>{opt.icon}</div>
-                                <div className="font-bold text-sm">{opt.label}</div>
-                                <div className="text-[10px] opacity-60">{opt.desc}</div>
-                            </button>
-                        ))}
+                        <button onClick={() => setProcessingType('slowed_reverb')} className={`p-4 rounded-xl border text-left transition-all ${processingType === 'slowed_reverb' ? 'bg-purple-500/10 border-purple-500 text-white shadow-[0_0_15px_rgba(168,85,247,0.15)]' : 'border-gray-800 text-gray-500 hover:bg-white/5'}`}>
+                            <div className="flex items-center gap-2 mb-2"><Moon className="w-5 h-5 text-purple-400"/></div>
+                            <div className="font-bold text-sm">Slowed + Reverb</div>
+                        </button>
+                        <button onClick={() => setProcessingType('lofi')} className={`p-4 rounded-xl border text-left transition-all ${processingType === 'lofi' ? 'bg-indigo-500/10 border-indigo-500 text-white shadow-[0_0_15px_rgba(99,102,241,0.15)]' : 'border-gray-800 text-gray-500 hover:bg-white/5'}`}>
+                            <div className="flex items-center gap-2 mb-2"><Wind className="w-5 h-5 text-indigo-400"/></div>
+                            <div className="font-bold text-sm">Chill Lo-Fi</div>
+                        </button>
+                        <button onClick={() => setProcessingType('nightcore')} className={`p-4 rounded-xl border text-left transition-all ${processingType === 'nightcore' ? 'bg-pink-500/10 border-pink-500 text-white shadow-[0_0_15px_rgba(236,72,153,0.15)]' : 'border-gray-800 text-gray-500 hover:bg-white/5'}`}>
+                            <div className="flex items-center gap-2 mb-2"><Zap className="w-5 h-5 text-pink-400"/></div>
+                            <div className="font-bold text-sm">Nightcore</div>
+                        </button>
+                        <button onClick={() => setProcessingType('8d_audio')} className={`p-4 rounded-xl border text-left transition-all ${processingType === '8d_audio' ? 'bg-cyan-500/10 border-cyan-500 text-white shadow-[0_0_15px_rgba(6,182,212,0.15)]' : 'border-gray-800 text-gray-500 hover:bg-white/5'}`}>
+                            <div className="flex items-center gap-2 mb-2"><Move3d className="w-5 h-5 text-cyan-400"/></div>
+                            <div className="font-bold text-sm">8D Audio</div>
+                        </button>
                     </div>
                  </div>
              )}
@@ -254,11 +250,8 @@ export const Home: React.FC<HomeProps> = ({ onPlay, onSaveToLibrary, userCredits
                     fullWidth
                     className={`h-16 text-lg font-bold tracking-wide shadow-xl ${isProcessing ? 'opacity-70' : 'bg-gradient-to-r from-violet-600 via-pink-600 to-orange-500 hover:from-violet-500 hover:to-orange-400 border-none'}`}
                 >
-                    {isProcessing ? 'Processing...' : userCredits > 0 ? `Generate (1 Credit)` : 'Buy Credits to Generate'} <Sparkles className="w-5 h-5 ml-2 fill-white" />
+                    {isProcessing ? 'Processing (Uploading)...' : userCredits > 0 ? `Generate (1 Credit)` : 'Buy Credits to Generate'} <Sparkles className="w-5 h-5 ml-2 fill-white" />
                 </Button>
-                {userCredits === 0 && (
-                    <p className="text-center text-red-400 text-sm">Insufficient credits. Please top up.</p>
-                )}
              </div>
 
              {/* Result Card */}
@@ -281,7 +274,7 @@ export const Home: React.FC<HomeProps> = ({ onPlay, onSaveToLibrary, userCredits
                                 <Play className="w-4 h-4 mr-2 fill-current" /> Play
                             </Button>
                             <Button onClick={handleDownload} variant="secondary" className="flex-1 py-3 text-sm hover:text-green-400 hover:border-green-400">
-                                <Download className="w-4 h-4 mr-2" /> Gallery
+                                <Download className="w-4 h-4 mr-2" /> Save
                             </Button>
                         </div>
                     </div>

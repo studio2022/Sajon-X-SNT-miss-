@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { User, Song, ProcessingStats, SystemConfig } from './types';
 import { Login } from './views/Login';
 import { Home } from './views/Home';
@@ -6,13 +6,20 @@ import { Player } from './views/Player';
 import { Admin } from './views/Admin';
 import { Library } from './views/Library';
 import { Wallet } from './views/Wallet';
-import { LayoutDashboard, LogOut, Settings, Music2, Library as LibraryIcon, WalletCards, Home as HomeIcon } from 'lucide-react';
+import { LayoutDashboard, LogOut, Settings, Music2, Library as LibraryIcon, WalletCards, Home as HomeIcon, Loader2 } from 'lucide-react';
+import { onAuthStateChanged, signOut } from 'firebase/auth';
+import { ref, onValue, set, update, push, remove } from 'firebase/database';
+import { auth, db } from './firebase';
 
 const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [currentView, setCurrentView] = useState<'home' | 'admin' | 'player' | 'library' | 'wallet'>('home');
   const [currentSong, setCurrentSong] = useState<Song | null>(null);
+  
+  // Real-time Data
+  const [allSongs, setAllSongs] = useState<Song[]>([]);
   const [myLibrary, setMyLibrary] = useState<Song[]>([]);
+  const [isLoadingAuth, setIsLoadingAuth] = useState(true);
   
   // Admin Config State
   const [systemConfig, setSystemConfig] = useState<SystemConfig>({
@@ -29,45 +36,108 @@ const App: React.FC = () => {
       showAds: true
   });
 
-  // Stats
-  const [stats] = useState<ProcessingStats>({
-    totalUsers: 1243,
-    activeUsers: 842,
-    songsProcessed: 5432,
-    serverLoad: 42,
-    revenue: 15400
+  const [stats, setStats] = useState<ProcessingStats>({
+    totalUsers: 0,
+    activeUsers: 0,
+    songsProcessed: 0,
+    serverLoad: 0,
+    revenue: 0
   });
 
-  const [recentUploads, setRecentUploads] = useState<Song[]>([
-    { id: '1', title: 'Midnight City (Slowed)', artist: 'User_88', duration: '4:20', uploadDate: '2023-10-24', status: 'ready', type: 'slowed_reverb' },
-  ]);
-
-  const handleLogin = (user: User) => {
-    // Grant configured free credits
-    setCurrentUser({ ...user, credits: systemConfig.freeCreditAmount });
-    setCurrentView('home');
-  };
-
-  const handleAddCredits = (amount: number) => {
-      if(currentUser) {
-          setCurrentUser({...currentUser, credits: currentUser.credits + amount});
+  // --- 1. Authentication Listener ---
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+      if (firebaseUser) {
+        // Listen to User Data (Credits, Role)
+        const userRef = ref(db, `users/${firebaseUser.uid}`);
+        onValue(userRef, (snapshot) => {
+          const data = snapshot.val();
+          if (data) {
+             setCurrentUser({ ...data, uid: firebaseUser.uid });
+          } else {
+             // Fallback if data missing
+             setCurrentUser({ email: firebaseUser.email || '', role: 'user', credits: 0 });
+          }
+          setIsLoadingAuth(false);
+        });
+      } else {
+        setCurrentUser(null);
+        setIsLoadingAuth(false);
       }
-  };
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // --- 2. System Config & Stats Listener ---
+  useEffect(() => {
+    const configRef = ref(db, 'systemConfig');
+    onValue(configRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) setSystemConfig(data);
+    });
+
+    const statsRef = ref(db, 'stats');
+    onValue(statsRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) setStats(data);
+    });
+  }, []);
+
+  // --- 3. Songs Listener ---
+  useEffect(() => {
+    const songsRef = ref(db, 'songs');
+    onValue(songsRef, (snapshot) => {
+      const data = snapshot.val();
+      const loadedSongs: Song[] = [];
+      if (data) {
+        Object.keys(data).forEach(key => {
+          loadedSongs.unshift({ ...data[key], id: key }); // Newest first
+        });
+      }
+      setAllSongs(loadedSongs);
+      
+      // Filter My Library
+      if (currentUser) {
+          // Assuming we store creatorId or email in song
+          // For now, let's filter by the user who created it if we added that field,
+          // or just local session if we didn't. 
+          // To make it persistent, Home.tsx needs to save 'createdBy'
+          const mySongs = loadedSongs.filter((s: any) => s.createdBy === currentUser.email);
+          setMyLibrary(mySongs);
+      }
+    });
+  }, [currentUser]);
+
+  // --- Handlers ---
 
   const handleSpendCredit = () => {
       if(currentUser && currentUser.credits > 0) {
-          setCurrentUser({...currentUser, credits: currentUser.credits - 1});
+          const newCredits = currentUser.credits - 1;
+          // Update in Realtime Database
+          // Assuming we have uid stored in currentUser state from Auth listener above
+          // We need uid. Let's cast currentUser to any to access uid if it exists
+          const uid = (auth.currentUser)?.uid;
+          if(uid) {
+             update(ref(db, `users/${uid}`), { credits: newCredits });
+          }
+      }
+  };
+
+  const handleAddCredits = (amount: number) => {
+      const uid = (auth.currentUser)?.uid;
+      if(uid && currentUser) {
+         update(ref(db, `users/${uid}`), { credits: currentUser.credits + amount });
       }
   };
 
   const handleLogout = () => {
-    setCurrentUser(null);
+    signOut(auth);
     setCurrentView('home');
     setCurrentSong(null);
   };
 
   const handleDeleteSong = (id: string) => {
-    setRecentUploads(prev => prev.filter(s => s.id !== id));
+     remove(ref(db, `songs/${id}`));
   };
 
   const handlePlaySong = (song: Song) => {
@@ -75,6 +145,20 @@ const App: React.FC = () => {
     setCurrentView('player');
   };
 
+  const handleUpdateConfig = (newConfig: SystemConfig) => {
+      update(ref(db, 'systemConfig'), newConfig);
+  };
+
+  // --- Loading Screen ---
+  if (isLoadingAuth) {
+      return (
+          <div className="min-h-screen bg-black flex items-center justify-center">
+              <Loader2 className="w-10 h-10 text-neon-purple animate-spin" />
+          </div>
+      );
+  }
+
+  // --- Login Screen ---
   if (!currentUser) {
     if (systemConfig.maintenanceMode) {
         return (
@@ -86,7 +170,7 @@ const App: React.FC = () => {
             </div>
         );
     }
-    return <Login onLogin={handleLogin} />;
+    return <Login onLogin={() => {}} />;
   }
 
   const BottomNavItem = ({ view, icon: Icon, label }: { view: 'home' | 'library' | 'wallet' | 'admin', icon: any, label: string }) => (
@@ -135,7 +219,7 @@ const App: React.FC = () => {
             <div className="animate-fade-in-up">
               <Home 
                 onPlay={handlePlaySong} 
-                onSaveToLibrary={(s) => setMyLibrary(p => [s, ...p])} 
+                onSaveToLibrary={() => {}} // Now handled via Firebase listener
                 userCredits={currentUser.credits}
                 onSpendCredit={handleSpendCredit}
                 onNavigateToWallet={() => setCurrentView('wallet')}
@@ -159,10 +243,10 @@ const App: React.FC = () => {
             <div className="animate-fade-in-up">
               <Admin 
                 stats={stats} 
-                recentUploads={recentUploads} 
+                recentUploads={allSongs} 
                 onDelete={handleDeleteSong} 
                 config={systemConfig}
-                onUpdateConfig={setSystemConfig}
+                onUpdateConfig={handleUpdateConfig}
               />
             </div>
           )}

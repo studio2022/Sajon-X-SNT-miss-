@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Users, Music4, Server, Trash2, TrendingUp, CreditCard, Save, Lock, Megaphone, UserX, Gift, Settings, Globe, Shield, RefreshCw } from 'lucide-react';
 import { ProcessingStats, Song, SystemConfig } from '../types';
 import { Button } from '../components/Button';
@@ -18,12 +18,18 @@ export const Admin: React.FC<AdminProps> = ({ stats, recentUploads, onDelete, co
   const [isSaving, setIsSaving] = useState(false);
   const [broadcastMsg, setBroadcastMsg] = useState('');
 
+  // Sync with incoming config props in case they update from Realtime DB
+  useEffect(() => {
+      setLocalConfig(config);
+  }, [config]);
+
   const handleSave = () => {
     setIsSaving(true);
+    // Directly call the handler which updates Firebase
+    onUpdateConfig(localConfig);
     setTimeout(() => {
-        onUpdateConfig(localConfig);
         setIsSaving(false);
-    }, 1000);
+    }, 500);
   };
 
   const tabs = [
@@ -38,7 +44,7 @@ export const Admin: React.FC<AdminProps> = ({ stats, recentUploads, onDelete, co
       <div className="flex flex-col md:flex-row justify-between items-end gap-4">
         <div>
           <h2 className="text-3xl font-display font-bold text-white">Admin Control</h2>
-          <p className="text-gray-400">Master Panel V3.0</p>
+          <p className="text-gray-400">Master Panel V3.0 (Firebase Connected)</p>
         </div>
         <div className="flex bg-dark-card p-1 rounded-xl border border-gray-800">
             {tabs.map(tab => (
@@ -57,10 +63,10 @@ export const Admin: React.FC<AdminProps> = ({ stats, recentUploads, onDelete, co
           <>
             {/* Stats Cards */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <StatCard icon={<Users className="text-neon-blue" />} label="Total Users" value={stats.totalUsers} />
-                <StatCard icon={<TrendingUp className="text-green-500" />} label="Active Now" value={stats.activeUsers} />
-                <StatCard icon={<Music4 className="text-neon-purple" />} label="Songs Created" value={stats.songsProcessed} />
-                <StatCard icon={<CreditCard className="text-yellow-500" />} label="Revenue (BDT)" value={stats.revenue || 15400} />
+                <StatCard icon={<Users className="text-neon-blue" />} label="Total Users" value={stats.totalUsers || '0'} />
+                <StatCard icon={<TrendingUp className="text-green-500" />} label="Active Now" value={stats.activeUsers || '0'} />
+                <StatCard icon={<Music4 className="text-neon-purple" />} label="Songs Created" value={stats.songsProcessed || recentUploads.length} />
+                <StatCard icon={<CreditCard className="text-yellow-500" />} label="Revenue (BDT)" value={stats.revenue || 0} />
             </div>
 
             {/* Quick Actions */}
@@ -86,13 +92,21 @@ export const Admin: React.FC<AdminProps> = ({ stats, recentUploads, onDelete, co
                             label="Maintenance Mode" 
                             desc="Lock app for all users"
                             active={localConfig.maintenanceMode} 
-                            onToggle={() => setLocalConfig({...localConfig, maintenanceMode: !localConfig.maintenanceMode})} 
+                            onToggle={() => {
+                                const newVal = !localConfig.maintenanceMode;
+                                setLocalConfig({...localConfig, maintenanceMode: newVal});
+                                onUpdateConfig({...localConfig, maintenanceMode: newVal});
+                            }} 
                         />
                         <ToggleRow 
                             label="Auto-Approve Payments" 
                             desc="Skip manual check"
                             active={localConfig.autoApprovePayments} 
-                            onToggle={() => setLocalConfig({...localConfig, autoApprovePayments: !localConfig.autoApprovePayments})} 
+                            onToggle={() => {
+                                const newVal = !localConfig.autoApprovePayments;
+                                setLocalConfig({...localConfig, autoApprovePayments: newVal});
+                                onUpdateConfig({...localConfig, autoApprovePayments: newVal});
+                            }} 
                         />
                     </div>
                 </div>
@@ -101,7 +115,7 @@ export const Admin: React.FC<AdminProps> = ({ stats, recentUploads, onDelete, co
                     <Server className="w-12 h-12 text-gray-600 mb-4" />
                     <h3 className="text-white font-bold">System Health</h3>
                     <p className="text-green-400 font-mono mt-1">Status: Operational</p>
-                    <p className="text-gray-500 text-xs mt-2">Server Load: {stats.serverLoad}%</p>
+                    <p className="text-gray-500 text-xs mt-2">Server Load: {stats.serverLoad || 24}%</p>
                     <button className="mt-4 text-xs text-red-400 hover:text-red-300 flex items-center gap-1"><RefreshCw className="w-3 h-3" /> Restart Server</button>
                 </div>
             </div>
